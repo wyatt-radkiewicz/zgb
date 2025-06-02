@@ -15,7 +15,7 @@ pub inline fn tick(this: *@This()) void {
     this.*.exec = Isa.Microcode.call(this.*.exec, &this.*.view, &decoder);
 }
 
-pub const decoder = Isa.decoder(&.{
+const decoder = Isa.decoder(&.{
     .instr("00000000", .{Fetch}),
     .instr("xxxxxxxx", .{Stub}),
 });
@@ -63,17 +63,71 @@ const Fetch = struct {
     }
 };
 
-test "nop" {
+fn tester(timeout: usize, code: []const u8, expect_views: anytype) !void {
     var cpu = reset;
-    cpu.tick();
-    try std.testing.expectEqual(View.Pins{
+    var timer: usize = 0;
+    const ram = [1]u8{0} ** 0x8000;
+
+    while (timer != timeout) : (timer += 1) {
+        // Tick the cpu
+        cpu.tick();
+
+        // Observe the pins and respond
+        switch (cpu.view.pins.addr) {
+            0x0000...0x7FFF => if (cpu.view.pins.rd) {
+                cpu.view.pins.data = if (cpu.view.pins.addr < code.len) code[cpu.view.pins.addr] else 0;
+            },
+            0x8000...0xFFFF => if (cpu.view.pins.rd) {
+                cpu.view.pins.data = ram[cpu.view.pins.addr - 0x8000];
+            },
+        }
+    }
+
+    const ExpectType = @TypeOf(expect_views);
+    inline for (std.meta.fields(ExpectType)) |field| {
+        const name = field.name;
+        const expected = @field(expect_views, name);
+        if (comptime std.mem.indexOfScalar(u8, name, '_')) |idx| {
+            const reg_name = name[0..idx];
+            if (!@hasField(View.Regs, reg_name)) {
+                @compileError("No register found by the name of " ++ reg_name);
+            } else if (name.len - idx <= 1) {
+                @compileError("Register with '_' but no byte field access");
+            }
+
+            const reg = @field(cpu.view.regs, reg_name);
+            try std.testing.expectEqual(@as(u8, expected), switch (name[idx + 1]) {
+                'l' => reg.byte.l,
+                'h' => reg.byte.h,
+                else => @compileError("No register field found by the name " ++ name[idx + 1 ..]),
+            });
+        } else {
+            if (@hasField(View.Regs, name)) {
+                const reg = @field(cpu.view.regs, name);
+                if (@TypeOf(reg) == View.Reg) {
+                    try std.testing.expectEqual(expected, reg.word);
+                } else {
+                    try std.testing.expectEqual(@as(@TypeOf(reg), expected), reg);
+                }
+            } else if (@hasField(View.Pins, name)) {
+                const pins = @field(cpu.view.pins, name);
+                try std.testing.expectEqual(@as(@TypeOf(pins), expected), pins);
+            } else {
+                @compileError("No register or pin found by the name " ++ name);
+            }
+        }
+    }
+}
+
+test "nop" {
+    try tester(4, &.{ 0x00, 0x42 }, .{
         .addr = 1,
-        .data = 0,
+        .data = 0x42,
         .cs = true,
         .rd = true,
         .wr = false,
-    }, cpu.view.pins);
-    cpu.tick();
-    cpu.tick();
-    cpu.tick();
+
+        .pc = 1,
+        .ir = 0x42,
+    });
 }
