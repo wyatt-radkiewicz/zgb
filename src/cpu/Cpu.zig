@@ -150,34 +150,29 @@ fn tester(timeout: usize, code: []const u8, initial_view: ?View, expect_views: a
     inline for (std.meta.fields(ExpectType)) |field| {
         const name = field.name;
         const expected = @field(expect_views, name);
-        if (comptime std.mem.indexOfScalar(u8, name, '_')) |idx| {
-            const reg_name = name[0..idx];
-            if (!@hasField(View.Regs, reg_name)) {
-                @compileError("No register found by the name of " ++ reg_name);
-            } else if (name.len - idx <= 1) {
-                @compileError("Register with '_' but no byte field access");
-            }
-
-            const reg = @field(cpu.view.regs, reg_name);
-            try std.testing.expectEqual(@as(u8, expected), switch (name[idx + 1]) {
-                'l' => reg.byte.l,
-                'h' => reg.byte.h,
-                else => @compileError("No register field found by the name " ++ name[idx + 1 ..]),
-            });
-        } else {
-            if (@hasField(View.Regs, name)) {
-                const reg = @field(cpu.view.regs, name);
-                if (@TypeOf(reg) == View.Reg) {
-                    try std.testing.expectEqual(expected, reg.word);
-                } else {
-                    try std.testing.expectEqual(@as(@TypeOf(reg), expected), reg);
-                }
-            } else if (@hasField(View.Pins, name)) {
-                const pins = @field(cpu.view.pins, name);
-                try std.testing.expectEqual(@as(@TypeOf(pins), expected), pins);
+        if (@hasField(View.Regs, name)) {
+            const reg = @field(cpu.view.regs, name);
+            if (@TypeOf(reg) == View.Reg) {
+                try std.testing.expectEqual(expected, reg.word);
             } else {
-                @compileError("No register or pin found by the name " ++ name);
+                try std.testing.expectEqual(@as(@TypeOf(reg), expected), reg);
             }
+        } else if (@hasField(View.Pins, name)) {
+            const pins = @field(cpu.view.pins, name);
+            try std.testing.expectEqual(@as(@TypeOf(pins), expected), pins);
+        } else if (comptime std.meta.stringToEnum(enum { a, b, c, d, e, f, h, l }, name)) |reg| {
+            switch (reg) {
+                .b => try std.testing.expectEqual(expected, cpu.view.regs.bc.byte.h),
+                .c => try std.testing.expectEqual(expected, cpu.view.regs.bc.byte.l),
+                .d => try std.testing.expectEqual(expected, cpu.view.regs.de.byte.h),
+                .e => try std.testing.expectEqual(expected, cpu.view.regs.de.byte.l),
+                .h => try std.testing.expectEqual(expected, cpu.view.regs.hl.byte.h),
+                .l => try std.testing.expectEqual(expected, cpu.view.regs.hl.byte.l),
+                .a => try std.testing.expectEqual(expected, cpu.view.regs.af.byte.h),
+                .f => try std.testing.expectEqual(expected, cpu.view.regs.af.byte.l),
+            }
+        } else {
+            @compileError("No register or pin found by the name " ++ name);
         }
     }
 }
@@ -202,11 +197,11 @@ test "ld r8, r8" {
             .bc = .{ .word = 0x4200 },
         },
     }, .{
-        .af_h = 0x42,
-        .bc_h = 0x42,
+        .a = 0x42,
+        .b = 0x42,
     });
 }
 
 test "ld r8, imm8" {
-    try tester(8, &.{ 0b0011_1110, 0x13 }, null, .{ .af_h = 0x13 });
+    try tester(8, &.{ 0b0011_1110, 0x13 }, null, .{ .a = 0x13 });
 }
