@@ -77,14 +77,6 @@ fn wrbus(comptime stage: u2, view: *View, options: switch (stage) {
     }
 }
 
-fn idlebus(comptime stage: u2, view: *View) void {
-    if (stage == 0) {
-        view.*.pins.rd = true;
-        view.*.pins.wr = false;
-        view.*.pins.cs = true;
-    }
-}
-
 fn r8(view: *View, comptime ir_idx: u3) *u8 {
     return switch (@as(u3, @truncate(view.*.regs.ir >> ir_idx))) {
         0 => &view.*.regs.bc.byte.h,
@@ -100,7 +92,11 @@ fn r8(view: *View, comptime ir_idx: u3) *u8 {
 
 const Idle = struct {
     pub inline fn op(comptime stage: u2, _: *Exec, view: *View) void {
-        idlebus(stage, view);
+        if (stage == 0) {
+            view.*.pins.rd = true;
+            view.*.pins.wr = false;
+            view.*.pins.cs = true;
+        }
     }
 };
 
@@ -209,4 +205,8 @@ test "ld r8, r8" {
         .af_h = 0x42,
         .bc_h = 0x42,
     });
+}
+
+test "ld r8, imm8" {
+    try tester(8, &.{ 0b0011_1110, 0x13 }, null, .{ .af_h = 0x13 });
 }
