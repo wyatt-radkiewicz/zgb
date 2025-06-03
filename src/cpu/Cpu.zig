@@ -10,7 +10,7 @@ pub const reset = @This(){
     .view = .reset,
     .exec = .init(&Exec.decoder(&.{
         .instr("00000000", .{Fetch(toir)}), // nop
-        .instr("01xxxxxx", .{struct {
+        .instr("01xxxxx0", .{struct {
             pub fn op(comptime stage: u2, exec: *Exec, view: *View) void {
                 Fetch(toir).op(stage, exec, view);
                 if (stage != 0) return;
@@ -24,6 +24,33 @@ pub const reset = @This(){
                 r8(view, 3).* = exec.tmp.z;
             }
         } }), // ld r8, imm8
+        .instr("00110110", .{Fetch(toz), struct {
+            pub fn op(comptime stage: u2, exec: *Exec, view: *View) void {
+                switch (stage) {
+                    0 => wrbus(stage, view, view.*.regs.hl.word),
+                    1, 3 => wrbus(stage, view, {}),
+                    2 => wrbus(stage, view, exec.*.tmp.z),
+                }
+            }
+        }}), // ld (HL), imm8
+        .instr("01110xxx", .{struct {
+            pub fn op(comptime stage: u2, _: *Exec, view: *View) void {
+                switch (stage) {
+                    0 => wrbus(stage, view, view.*.regs.hl.word),
+                    1, 3 => wrbus(stage, view, {}),
+                    2 => wrbus(stage, view, r8(view, 0).*),
+                }
+            }
+        }}), // ld (HL), r8
+        .instr("01xxx110", .{struct {
+            pub fn op(comptime stage: u2, _: *Exec, view: *View) void {
+                switch (stage) {
+                    0 => rdbus(stage, view, view.*.regs.hl.word),
+                    1, 2 => rdbus(stage, view, {}),
+                    3 => r8(view, 3).* = rdbus(stage, view, {}),
+                }
+            }
+        }}), // ld r8, (HL)
         .instr("xxxxxxxx", .{Idle}), // stub
     })),
 };
@@ -204,4 +231,42 @@ test "ld r8, r8" {
 
 test "ld r8, imm8" {
     try tester(8, &.{ 0b0011_1110, 0x13 }, null, .{ .a = 0x13 });
+}
+
+test "ld r8, (HL)" {
+    try tester(4, &.{ 0b0111_1110 }, View{
+        .pins = .reset,
+        .regs = .{
+            .hl = .{ .word = 0x0001 },
+        },
+    }, .{
+        .a = 0x00, // Should load value at memory location 0x0001, which is 0x00
+    });
+}
+
+test "ld (HL), r8" {
+    try tester(4, &.{ 0b0111_0000 }, View{
+        .pins = .reset,
+        .regs = .{
+            .hl = .{ .word = 0xC000 },
+            .bc = .{ .byte = .{ .h = 0x42, .l = 0x00 } },
+        },
+    }, .{
+        .addr = 0xC000, // Should write to memory location 0xC000
+        .data = 0x42,   // Should write value 0x42 (from B register)
+        .wr = true,     // Should be a write operation
+    });
+}
+
+test "ld (HL), n" {
+    try tester(8, &.{ 0x36, 0x42 }, View{
+        .pins = .reset,
+        .regs = .{
+            .hl = .{ .word = 0xC000 },
+        },
+    }, .{
+        .addr = 0xC000, // Should write to memory location 0xC000
+        .data = 0x42,   // Should write immediate value 0x42
+        .wr = true,     // Should be a write operation
+    });
 }
