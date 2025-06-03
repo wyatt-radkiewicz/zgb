@@ -1,74 +1,141 @@
 const std = @import("std");
 
-const Isa = @import("Isa.zig");
+const Exec = @import("Exec.zig");
 pub const View = @import("View.zig");
 
 view: View,
-exec: Isa.Microcode.Ptr,
+exec: Exec,
 
 pub const reset = @This(){
     .view = .reset,
-    .exec = decoder[0x00],
+    .exec = .init(&Exec.decoder(&.{
+        .instr("00000000", .{Fetch(toir)}), // nop
+        .instr("01xxxxxx", .{struct {
+            pub fn op(comptime stage: u2, exec: *Exec, view: *View) void {
+                Fetch(toir).op(stage, exec, view);
+                if (stage != 0) return;
+                r8(view, 3).* = r8(view, 0).*;
+            }
+        }}), // ld r8, r8
+        .instr("00xxx110", .{ Fetch(toz), struct {
+            pub fn op(comptime stage: u2, exec: *Exec, view: *View) void {
+                Fetch(toir).op(stage, exec, view);
+                if (stage != 0) return;
+                r8(view, 3).* = exec.tmp.z;
+            }
+        } }), // ld r8, imm8
+        .instr("xxxxxxxx", .{Idle}), // stub
+    })),
 };
 
 pub inline fn tick(this: *@This()) void {
-    this.*.exec = Isa.Microcode.call(this.*.exec, &this.*.view, &decoder);
+    this.*.exec.pfn(&this.exec, &this.*.view);
 }
 
-const decoder = Isa.decoder(&.{
-    .instr("00000000", .{Fetch}),
-    .instr("xxxxxxxx", .{Stub}),
-});
+fn cspin(addr: u16) bool {
+    return switch (addr) {
+        0xA000...0xFDFF => false,
+        else => true,
+    };
+}
 
-const Stub = struct {
-    pub inline fn op(comptime stage: u2, view: *View) void {
-        _ = stage;
-        _ = view;
+fn rdbus(comptime stage: u2, view: *View, options: if (stage == 0) u16 else void) switch (stage) {
+    3 => u8,
+    else => void,
+} {
+    switch (stage) {
+        0 => {
+            view.*.pins.addr = options;
+            view.*.pins.rd = true;
+            view.*.pins.wr = false;
+            view.*.pins.cs = true;
+        },
+        1 => view.*.pins.cs = cspin(view.*.pins.addr),
+        2 => {},
+        3 => return view.*.pins.data,
+    }
+}
+
+fn wrbus(comptime stage: u2, view: *View, options: switch (stage) {
+    0 => u16,
+    1, 3 => void,
+    2 => u8,
+}) void {
+    switch (stage) {
+        0 => {
+            view.*.pins.addr = options;
+            view.*.pins.rd = false;
+            view.*.pins.wr = false;
+            view.*.pins.cs = true;
+        },
+        1 => view.*.pins.cs = cspin(view.*.pins.addr),
+        2 => {
+            view.*.pins.wr = true;
+            view.*.pins.data = options;
+        },
+        3 => {},
+    }
+}
+
+fn idlebus(comptime stage: u2, view: *View) void {
+    if (stage == 0) {
+        view.*.pins.rd = true;
+        view.*.pins.wr = false;
+        view.*.pins.cs = true;
+    }
+}
+
+fn r8(view: *View, comptime ir_idx: u3) *u8 {
+    return switch (@as(u3, @truncate(view.*.regs.ir >> ir_idx))) {
+        0 => &view.*.regs.bc.byte.h,
+        1 => &view.*.regs.bc.byte.l,
+        2 => &view.*.regs.de.byte.h,
+        3 => &view.*.regs.de.byte.l,
+        4 => &view.*.regs.hl.byte.h,
+        5 => &view.*.regs.hl.byte.l,
+        6 => unreachable,
+        7 => &view.*.regs.af.byte.h,
+    };
+}
+
+const Idle = struct {
+    pub inline fn op(comptime stage: u2, _: *Exec, view: *View) void {
+        idlebus(stage, view);
     }
 };
 
-fn Read(comptime to: []const u8, assert_addr: fn (*View) u16) type {
+fn toir(_: *Exec, view: *View, byte: u8) void {
+    view.*.regs.ir = byte;
+}
+
+fn toz(exec: *Exec, _: *View, byte: u8) void {
+    exec.*.tmp.z = byte;
+}
+
+fn Fetch(comptime to: fn (exec: *Exec, view: *View, byte: u8) void) type {
     return struct {
-        pub fn op(comptime stage: u2, view: *View) void {
+        pub fn op(comptime stage: u2, exec: *Exec, view: *View) void {
             switch (stage) {
                 0 => {
-                    view.*.pins.addr = assert_addr(view);
-                    view.*.pins.rd = true;
-                    view.*.pins.wr = false;
-                    view.*.pins.cs = true;
+                    rdbus(stage, view, view.*.regs.pc.word);
+                    view.*.regs.pc.word += 1;
                 },
-                1 => {
-                    view.*.pins.cs = switch (view.*.pins.addr) {
-                        0xA000...0xFDFF => false,
-                        else => true,
-                    };
-                },
-                2 => {},
-                3 => {
-                    @field(view.*.regs, to) = view.*.pins.data;
-                },
+                1, 2 => rdbus(stage, view, {}),
+                3 => to(exec, view, rdbus(stage, view, {})),
             }
         }
     };
 }
 
-const Fetch = struct {
-    pub fn assertAddr(view: *View) u16 {
-        view.*.regs.pc.word += 1;
-        return view.*.regs.pc.word;
-    }
-
-    pub fn op(comptime stage: u2, view: *View) void {
-        Read("ir", assertAddr).op(stage, view);
-    }
-};
-
-fn tester(timeout: usize, code: []const u8, expect_views: anytype) !void {
+fn tester(timeout: usize, code: []const u8, initial_view: ?View, expect_views: anytype) !void {
     var cpu = reset;
     var timer: usize = 0;
     const ram = [1]u8{0} ** 0x8000;
 
-    while (timer != timeout) : (timer += 1) {
+    if (initial_view) |view| {
+        cpu.view = view;
+    }
+    while (timer < timeout + 4) : (timer += 1) {
         // Tick the cpu
         cpu.tick();
 
@@ -120,14 +187,26 @@ fn tester(timeout: usize, code: []const u8, expect_views: anytype) !void {
 }
 
 test "nop" {
-    try tester(4, &.{ 0x00, 0x42 }, .{
+    try tester(4, &.{ 0x00, 0x42 }, null, .{
         .addr = 1,
         .data = 0x42,
         .cs = true,
         .rd = true,
         .wr = false,
 
-        .pc = 1,
+        .pc = 2,
         .ir = 0x42,
+    });
+}
+
+test "ld r8, r8" {
+    try tester(4, &.{0b0111_1000}, View{
+        .pins = .reset,
+        .regs = .{
+            .bc = .{ .word = 0x4200 },
+        },
+    }, .{
+        .af_h = 0x42,
+        .bc_h = 0x42,
     });
 }

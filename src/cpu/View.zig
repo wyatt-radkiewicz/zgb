@@ -1,3 +1,5 @@
+const std = @import("std");
+
 regs: Regs,
 pins: Pins,
 
@@ -7,28 +9,26 @@ pub const reset = @This(){
 };
 
 pub const Regs = struct {
-    bc: Reg,
-    de: Reg,
-    hl: Reg,
-    af: Reg,
-    pc: Reg,
-    sp: Reg,
-    ir: u8,
-    ie: u8,
+    bc: Reg = .zero,
+    de: Reg = .zero,
+    hl: Reg = .zero,
+    af: Reg = .zero,
+    pc: Reg = .zero,
+    sp: Reg = .zero,
+    ir: u8 = 0,
+    ie: u8 = 0,
 
-    pub const reset = @This(){
-        .bc = .zero,
-        .de = .zero,
-        .hl = .zero,
-        .af = .zero,
-        .pc = .zero,
-        .sp = .zero,
-        .ir = 0,
-        .ie = 0,
-    };
+    pub const reset = @This(){};
 };
 
 pub const Reg = packed union {
+    flag: packed struct {
+        reserved: u4,
+        carry: bool,
+        bcd_half_carry: bool,
+        bcd_subtract: bool,
+        zero: bool,
+    },
     byte: packed struct {
         l: u8,
         h: u8,
@@ -38,21 +38,24 @@ pub const Reg = packed union {
     pub const zero = @This(){
         .word = 0,
     };
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("0x{X:0>4}", .{self.word});
+    }
 };
 
 pub const Pins = packed struct {
-    addr: u16,
-    data: u8,
+    addr: u16 = 0,
+    data: u8 = 0,
 
-    rd: bool,
-    wr: bool,
-    cs: bool,
+    rd: bool = true,
+    wr: bool = false,
+    cs: bool = true,
 
-    pub const reset = @This(){
-        .addr = 0,
-        .data = 0,
-        .rd = true,
-        .wr = true,
-        .cs = true,
-    };
+    pub const reset = @This(){};
 };
