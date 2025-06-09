@@ -1,3 +1,45 @@
+//! Game Boy DMG CPU Emulator
+//!
+//! This file implements a cycle-accurate emulation of the Game Boy DMG CPU, which is based on
+//! the Sharp LR35902 processor (a modified Z80-like design). The emulation models both the
+//! internal CPU state and the external pin interface to accurately simulate timing and behavior.
+//!
+//! ## Architecture Overview
+//!
+//! The emulator is structured around several key components:
+//!
+//! 1. **Pins**: Models the physical CPU pins (address bus, data bus, control signals)
+//! 2. **State**: Contains all internal CPU registers and execution context
+//! 3. **Microcode**: Low-level operations that execute over multiple clock cycles
+//! 4. **Decoder**: Compile-time generated lookup table mapping opcodes to microcode sequences
+//! 5. **Execution Engine**: Manages microcode execution and instruction timing
+//!
+//! ## Key Concepts
+//!
+//! ### Microcode Execution
+//! Instructions are broken down into sequences of microcode operations. Each microcode operation
+//! represents one machine cycle (4 clock ticks) and can modify CPU state and control external pins.
+//! This approach allows cycle-accurate timing that matches real hardware.
+//!
+//! ### Register System
+//! The CPU registers are modeled using a flexible type system that allows accessing 16-bit
+//! register pairs as either a full word or separate high/low bytes. The AF register pair
+//! has special handling for the flags register format.
+//!
+//! ### Instruction Decoding
+//! The decoder uses a compile-time builder pattern to generate efficient lookup tables.
+//! Instructions are defined using bit pattern strings (e.g., "01xxxxxx") that specify
+//! which opcodes match and what microcode sequence to execute.
+//!
+//! ### Memory Interface
+//! The emulator communicates with external memory through the Pins interface, modeling
+//! the actual bus timing and control signals used by the real hardware.
+//!
+//! ## Usage
+//! 
+//! The main entry point is the `tick()` function, which advances the CPU by one clock cycle.
+//! External code is responsible for responding to pin changes to simulate memory and I/O.
+
 const std = @import("std");
 
 /// Represents the physical pins on a Game Boy DMG CPU chip.
@@ -198,7 +240,7 @@ pub const State = struct {
     }
 };
 
-/// Function signature for microcode operations.
+/// Function signature for microcode operations that simulate 1 clock cycle.
 /// Each microcode operation receives the CPU state and pin state,
 /// allowing it to modify internal registers and control external bus signals.
 const Microcode = fn (*State, *Pins) void;
