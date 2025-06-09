@@ -172,6 +172,10 @@ pub const State = struct {
 
     /// Get a pointer to a specific register byte for reading/writing.
     /// This handles the complexity of accessing different register formats uniformly.
+    /// Get a pointer to a register using string-based addressing.
+    /// Supports both 8-bit and 16-bit register access with simple dot notation.
+    /// Examples: "af", "bc.h", "hl.l", "ir"
+    /// Returns *u8 for byte access or *u16 for word access based on the register specification.
     inline fn idx(this: *@This(), comptime reg: []const u8) ret: {
         if (std.mem.indexOfScalar(u8, reg, '.') != null or @FieldType(@This(), reg) == Reg(8)) {
             break :ret *u8;
@@ -181,11 +185,13 @@ pub const State = struct {
     } {
         const i = comptime std.mem.indexOfScalar(u8, reg, '.') orelse reg.len;
         return switch (@FieldType(@This(), reg[0..i])) {
-            Reg(8) => &@field(this, reg).b,
+            Reg(8) => &@field(this, reg).b, // 8-bit register: return byte pointer
             Reg(16) => blk: {
                 if (i != reg.len) {
+                    // 16-bit register with half specifier (e.g., "bc.h")
                     break :blk &@field(@field(this, reg[0..i]).b, reg[i + 1 ..]);
                 } else {
+                    // 16-bit register as word (e.g., "hl")
                     break :blk &@field(this, reg).w;
                 }
             },
@@ -417,7 +423,7 @@ const Exec = struct {
     /// 1: Assert chip select
     /// 2: Wait state
     /// 3: Latch data
-    fn ReadBus(comptime reg8: []const u8) type {
+    fn ReadBus(comptime reg: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
@@ -428,7 +434,7 @@ const Exec = struct {
                     },
                     1 => pins.*.cs = cs(pins.*.addr),
                     2 => {}, // Wait state for memory access
-                    3 => state.idx(reg8).* = pins.*.data,
+                    3 => state.idx(reg).* = pins.*.data,
                 }
             }
         };
@@ -441,7 +447,7 @@ const Exec = struct {
     /// 1: Assert chip select
     /// 2: Output data and assert write
     /// 3: Complete write cycle
-    fn WriteBus(comptime reg8: []const u8) type {
+    fn WriteBus(comptime reg: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
@@ -453,7 +459,7 @@ const Exec = struct {
                     1 => pins.*.cs = cs(pins.*.addr),
                     2 => {
                         pins.*.wr = true;
-                        pins.*.data = state.idx(reg8).*;
+                        pins.*.data = state.idx(reg).*;
                     },
                     3 => {}, // Complete write cycle
                 }
@@ -463,11 +469,13 @@ const Exec = struct {
 
     /// Assert address line with register microcode generator.
     /// Asserts onto the address lines on stage 0 the contents of the register specified.
-    fn AssertAddrReg(comptime reg16: []const u8) type {
+    /// Set the address bus to the value of a 16-bit register.
+    /// Used to prepare for memory operations using register-indirect addressing.
+    fn AssertAddrReg(comptime reg: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 if (stage == 0) {
-                    pins.*.addr = state.idx(reg16).*;
+                    pins.addr = state.idx(reg).*;
                 }
             }
         };
@@ -476,40 +484,44 @@ const Exec = struct {
     /// Instruction fetch microcode generator.
     /// Combines PC increment with bus read to fetch the next byte from memory.
     /// This is the standard way Game Boy DMG fetches instruction bytes and immediate data.
-    fn Fetch(comptime reg8: []const u8) type {
+    fn Fetch(comptime reg: []const u8) type {
         return struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 if (stage == 0) {
                     pins.addr = state.pc.w;
                     state.pc.w += 1; // Increment PC for next fetch
                 }
-                ReadBus(reg8).op(ir, stage, state, pins);
+                ReadBus(reg).op(ir, stage, state, pins);
             }
         };
     }
 
     /// Used in the transfer generator to specify a register from the opcode or hardcoded
+    /// Represents a register target for microcode operations.
+    /// Allows specifying registers either directly by name or indirectly through instruction encoding.
     const TargetReg = union(enum) {
-        /// Use a place from here in the instruction register
+        /// Register is encoded in the instruction at the specified bit position.
+        /// The 3-bit value is used with r8() to determine the actual register.
         ir: u3,
 
-        /// Use a hardcoded register
-        reg8: []const u8,
+        /// Direct register reference using string notation (e.g., "af.h", "bc.l", "hl").
+        reg: []const u8,
 
-        /// Get a pointer to the register
+        /// Get a pointer to the actual register this target represents.
+        /// Resolves both instruction-encoded and direct register references.
         fn get(comptime this: @This(), comptime ir: u8, state: *State) *u8 {
             return switch (this) {
-                // Register encoded in instruction
+                // Register encoded in instruction - extract bits and map to register
                 .ir => |idx| state.idx(r8(extract(ir, idx, 3))),
-                // Direct register reference
-                .reg8 => |reg| state.idx(reg),
+                // Direct register reference - use string directly
+                .reg => |reg| state.idx(reg),
             };
         }
     };
 
     /// Register transfer microcode generator.
     /// Implements register-to-register moves that complete in a single cycle.
-    /// Supports both direct register references and instruction-encoded registers.
+    /// Uses the new TargetReg system for flexible register addressing.
     fn Transfer(comptime dst: TargetReg, comptime src: TargetReg) type {
         return struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
@@ -545,14 +557,13 @@ const Exec = struct {
             // Fetch immediate byte into temp register
             Fetch("z.l"),
             // Transfer to destination and fetch next
-            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg8 = "z.l" }) }),
+            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg = "z.l" }) }),
         })
-        .instr("01xxx110", .{ // LD r8, (hl) - load indirect byte
-            // Put byte from hl into z register
+        .instr("01xxx110", .{ // LD r8, (hl) - load from memory address in HL
+            // Set address bus to HL and read byte into temp register
             Join(.{ AssertAddrReg("hl"), ReadBus("z.l") }),
-
-            // Transfer z register to the destination and get next instruction
-            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg8 = "z.l" }) }),
+            // Transfer temp register to destination and fetch next instruction
+            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg = "z.l" }) }),
         })
         .Build();
 };
