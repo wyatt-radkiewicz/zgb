@@ -170,115 +170,30 @@ pub const State = struct {
         };
     }
 
-    /// Specifies which half of a 16-bit register to access
-    const Half = enum { l, h };
-
-    /// Compile-time generated enum for register indexing.
-    /// This creates a type-safe way to reference registers without using strings.
-    /// The compiler generates this by introspecting the State struct fields.
-    fn Index(comptime width: u16) type {
-        return switch (width) {
-            8 => create_register_index: {
-                // Collect all register field names from the State struct
-                var variants = std.BoundedArray([:0]const u8, 64).init(0) catch unreachable;
-                for (std.meta.fields(State)) |field| {
-                    switch (field.type) {
-                        Reg(8), Reg(16) => variants.appendAssumeCapacity(field.name),
-                        else => {}, // Skip non-register fields
-                    }
-                }
-
-                // Generate a tagged union type with one variant per register
-                break :create_register_index @Type(.{
-                    .@"union" = .{
-                        .layout = .auto,
-
-                        // Create enum tags for each register
-                        .tag_type = @Type(.{ .@"enum" = .{
-                            .tag_type = std.math.IntFittingRange(0, variants.len),
-                            .fields = tag_fields: {
-                                var tags: [variants.len]std.builtin.Type.EnumField = undefined;
-                                for (variants.slice(), 0..) |variant, i| {
-                                    tags[i] = .{ .name = variant, .value = i };
-                                }
-                                break :tag_fields &tags;
-                            },
-                            .decls = &.{},
-                            .is_exhaustive = false,
-                        } }),
-
-                        // Create union fields - 16-bit regs need half specifier, 8-bit don't
-                        .fields = union_fields: {
-                            var fields: [variants.len]std.builtin.Type.UnionField = undefined;
-                            for (variants.slice(), &fields) |variant, *field| {
-                                field.* = .{
-                                    .name = variant,
-                                    .type = switch (@FieldType(State, variant)) {
-                                        Reg(8) => void, // 8-bit: no half needed
-                                        Reg(16) => Half, // 16-bit: specify high or low
-                                        else => unreachable,
-                                    },
-                                    .alignment = 0,
-                                };
-                            }
-                            break :union_fields &fields;
-                        },
-
-                        .decls = &.{},
-                    },
-                });
-            },
-            16 => create_register_index: {
-                // Collect all register field names from the State struct
-                var variants = std.BoundedArray([:0]const u8, 64).init(0) catch unreachable;
-                for (std.meta.fields(State)) |field| {
-                    switch (field.type) {
-                        Reg(16) => variants.appendAssumeCapacity(field.name),
-                        else => {}, // Skip non-16-bit-register fields
-                    }
-                }
-
-                // Generate a enum type with one variant per register
-                break :create_register_index @Type(.{
-                    .@"enum" = .{
-                        .tag_type = std.math.IntFittingRange(0, variants.len),
-                        .fields = tag_fields: {
-                            var tags: [variants.len]std.builtin.Type.EnumField = undefined;
-                            for (variants.slice(), 0..) |variant, i| {
-                                tags[i] = .{ .name = variant, .value = i };
-                            }
-                            break :tag_fields &tags;
-                        },
-                        .decls = &.{},
-                        .is_exhaustive = false,
-                    },
-                });
-            },
-            else => @compileError(std.fmt.comptimePrint(
-                "Expected index width of 8 or 16 but found {}",
-                .{width},
-            )),
-        };
-    }
-
     /// Get a pointer to a specific register byte for reading/writing.
     /// This handles the complexity of accessing different register formats uniformly.
-    inline fn idx(this: *@This(), comptime index: anytype) switch (@TypeOf(index)) {
-        Index(8) => *u8,
-        Index(16) => *u16,
-        else => unreachable,
-    } {
-        const name = @tagName(index);
-        if (@TypeOf(index) == Index(8)) {
-            return switch (index) {
-                inline else => |i| switch (@TypeOf(i)) {
-                    void => &@field(this.*, name).b, // 8-bit register
-                    else => &@field(@field(this.*, name).b, @tagName(i)), // 16-bit register half
-                },
-            };
+    inline fn idx(this: *@This(), comptime reg: []const u8) ret: {
+        if (std.mem.indexOfScalar(u8, reg, '.') != null or @FieldType(@This(), reg) == Reg(8)) {
+            break :ret *u8;
         } else {
-            return &@field(this.*, name).w; // 16-bit register full
+            break :ret *u16;
         }
+    } {
+        const i = comptime std.mem.indexOfScalar(u8, reg, '.') orelse reg.len;
+        return switch (@FieldType(@This(), reg[0..i])) {
+            Reg(8) => &@field(this, reg).b,
+            Reg(16) => blk: {
+                if (i != reg.len) {
+                    break :blk &@field(@field(this, reg[0..i]).b, reg[i + 1 ..]);
+                } else {
+                    break :blk &@field(this, reg).w;
+                }
+            },
+            else => @compileError(std.fmt.comptimePrint(
+                "idx() only supports registers but got {} instead",
+                .{reg},
+            )),
+        };
     }
 };
 
@@ -473,15 +388,15 @@ const Exec = struct {
     /// Convert 3-bit register encoding to register index.
     /// This maps the r8 addressing mode used in many Game Boy DMG instructions:
     /// 000=B, 001=C, 010=D, 011=E, 100=H, 101=L, 110=(HL), 111=A
-    fn r8(enc: u3) State.Index(8) {
+    fn r8(enc: u3) []const u8 {
         return switch (enc) {
-            0 => .{ .bc = .h }, // B register
-            1 => .{ .bc = .l }, // C register
-            2 => .{ .de = .h }, // D register
-            3 => .{ .de = .l }, // E register
-            4 => .{ .hl = .h }, // H register
-            5 => .{ .hl = .l }, // L register
-            6, 7 => .{ .af = .h }, // (HL) or A register
+            0 => "bc.h", // B register
+            1 => "bc.l", // C register
+            2 => "de.h", // D register
+            3 => "de.l", // E register
+            4 => "hl.h", // H register
+            5 => "hl.l", // L register
+            6, 7 => "af.h", // (HL) or A register
         };
     }
 
@@ -502,7 +417,7 @@ const Exec = struct {
     /// 1: Assert chip select
     /// 2: Wait state
     /// 3: Latch data
-    fn ReadBus(comptime reg: State.Index(8)) type {
+    fn ReadBus(comptime reg8: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
@@ -513,7 +428,7 @@ const Exec = struct {
                     },
                     1 => pins.*.cs = cs(pins.*.addr),
                     2 => {}, // Wait state for memory access
-                    3 => state.idx(reg).* = pins.*.data,
+                    3 => state.idx(reg8).* = pins.*.data,
                 }
             }
         };
@@ -526,7 +441,7 @@ const Exec = struct {
     /// 1: Assert chip select
     /// 2: Output data and assert write
     /// 3: Complete write cycle
-    fn WriteBus(comptime reg: State.Index(8)) type {
+    fn WriteBus(comptime reg8: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
@@ -538,7 +453,7 @@ const Exec = struct {
                     1 => pins.*.cs = cs(pins.*.addr),
                     2 => {
                         pins.*.wr = true;
-                        pins.*.data = state.idx(reg).*;
+                        pins.*.data = state.idx(reg8).*;
                     },
                     3 => {}, // Complete write cycle
                 }
@@ -548,11 +463,11 @@ const Exec = struct {
 
     /// Assert address line with register microcode generator.
     /// Asserts onto the address lines on stage 0 the contents of the register specified.
-    fn AssertAddrReg(comptime reg: State.Index(16)) type {
+    fn AssertAddrReg(comptime reg16: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 if (stage == 0) {
-                    pins.*.addr = state.idx(reg).*;
+                    pins.*.addr = state.idx(reg16).*;
                 }
             }
         };
@@ -561,14 +476,14 @@ const Exec = struct {
     /// Instruction fetch microcode generator.
     /// Combines PC increment with bus read to fetch the next byte from memory.
     /// This is the standard way Game Boy DMG fetches instruction bytes and immediate data.
-    fn Fetch(comptime reg: State.Index(8)) type {
+    fn Fetch(comptime reg8: []const u8) type {
         return struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 if (stage == 0) {
                     pins.addr = state.pc.w;
                     state.pc.w += 1; // Increment PC for next fetch
                 }
-                ReadBus(reg).op(ir, stage, state, pins);
+                ReadBus(reg8).op(ir, stage, state, pins);
             }
         };
     }
@@ -579,7 +494,7 @@ const Exec = struct {
         ir: u3,
 
         /// Use a hardcoded register
-        reg: State.Index(8),
+        reg8: []const u8,
 
         /// Get a pointer to the register
         fn get(comptime this: @This(), comptime ir: u8, state: *State) *u8 {
@@ -587,7 +502,7 @@ const Exec = struct {
                 // Register encoded in instruction
                 .ir => |idx| state.idx(r8(extract(ir, idx, 3))),
                 // Direct register reference
-                .reg => |reg| state.idx(reg),
+                .reg8 => |reg| state.idx(reg),
             };
         }
     };
@@ -621,23 +536,23 @@ const Exec = struct {
     /// This defines the actual instruction set architecture of the emulated CPU.
     const decoder = Decoder.init
         .instr("00000000", .{ // NOP - just fetch next instruction
-            Fetch(.ir),
+            Fetch("ir"),
         })
         .instr("01xxxxxx", .{ // LD r8,r8 - register to register
-            Join(.{ Fetch(.ir), Transfer(.{ .ir = 3 }, .{ .ir = 0 }) }),
+            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .ir = 0 }) }),
         })
         .instr("00xxx110", .{ // LD r8,n - load immediate byte
             // Fetch immediate byte into temp register
-            Fetch(.{ .z = .l }),
+            Fetch("z.l"),
             // Transfer to destination and fetch next
-            Join(.{ Fetch(.ir), Transfer(.{ .ir = 3 }, .{ .reg = .{ .z = .l } }) }),
+            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg8 = "z.l" }) }),
         })
         .instr("01xxx110", .{ // LD r8, (hl) - load indirect byte
             // Put byte from hl into z register
-            Join(.{ AssertAddrReg(.hl), ReadBus(.{ .z = .l }) }),
+            Join(.{ AssertAddrReg("hl"), ReadBus("z.l") }),
 
             // Transfer z register to the destination and get next instruction
-            Join(.{ Fetch(.ir), Transfer(.{ .ir = 3 }, .{ .reg = .{ .z = .l } }) }),
+            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg8 = "z.l" }) }),
         })
         .Build();
 };
