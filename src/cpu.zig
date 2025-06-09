@@ -238,7 +238,7 @@ const Decoder = struct {
     const init = @This(){ .encoders = &.{.{
         .mask = .initFull(),
         .code = &.{ struct {
-            pub fn op(comptime _: u2, _: *State, _: *Pins) void {}
+            pub fn op(comptime _: u8, comptime _: u2, _: *State, _: *Pins) void {}
         }, NoIr },
     }} };
 
@@ -251,7 +251,8 @@ const Decoder = struct {
                 return std.math.order(ctx.mask.count(), val.mask.count());
             }
         }.cmp);
-        var encoders = this.encoders[0..idx] ++ .{encoding} ++ this.encoders[idx + 1 ..];
+        var encoders = this.encoders[0..idx] ++ .{encoding} ++
+            this.encoders[idx..];
         return .{ .encoders = encoders[0..] };
     }
 
@@ -264,7 +265,7 @@ const Decoder = struct {
                 @setEvalBranchQuota(1000000);
 
                 // Get the code for every encoding
-                var code: [this.encoders.len]*const Microcode = undefined;
+                var code: [this.encoders.len][256]*const Microcode = undefined;
                 for (this.encoders, &code) |encoder, *pfn| {
                     pfn.* = link(encoder);
                 }
@@ -272,9 +273,10 @@ const Decoder = struct {
                 // Now generate the look up table
                 var decoder: [256]*const Microcode = undefined;
                 for (0..decoder.len) |byte| {
-                    for (this.encoders, code) |encoder, pfn| {
+                    for (this.encoders, code) |encoder, pfn_table| {
                         if (encoder.mask.isSet(byte)) {
-                            decoder[byte] = pfn;
+                            decoder[byte] = pfn_table[byte];
+                            break;
                         }
                     }
                 }
@@ -282,29 +284,41 @@ const Decoder = struct {
             };
 
             /// Links together a encoding's code
-            fn link(comptime enc: Encoding) *const Microcode {
+            fn link(comptime enc: Encoding) [256]*const Microcode {
                 const noir = enc.code[enc.code.len - 1] == NoIr;
                 comptime var state = enc.code.len - @intFromBool(noir);
-                comptime var last: ?*const Microcode = null;
-                return inline while (state != 0) {
+                comptime var last = [1]?*const Microcode{null} ** 256;
+                inline while (state != 0) {
                     state -= 1;
                     comptime var stage = 4;
                     inline while (stage != 0) {
                         stage -= 1;
-                        last = struct {
-                            fn op(s: *State, p: *Pins) void {
-                                enc.code[state].op(stage, s, p);
-                                if (last) |pfn| {
-                                    s.exec.stage = pfn;
-                                } else if (noir) {
-                                    s.exec.stage = op;
-                                } else {
-                                    s.exec.stage = lut[s.ir.b];
-                                }
+                        inline for (0..last.len) |byte| {
+                            if (!enc.mask.isSet(byte)) {
+                                continue;
                             }
-                        }.op;
+                            last[byte] = struct {
+                                fn op(s: *State, p: *Pins) void {
+                                    enc.code[state].op(byte, stage, s, p);
+                                    if (last[byte]) |pfn| {
+                                        s.exec.stage = pfn;
+                                    } else if (!noir) {
+                                        s.exec.stage = lut[s.ir.b];
+                                    }
+                                }
+                            }.op;
+                        }
                     }
-                } else last orelse unreachable;
+                }
+                comptime var final = [1]*const Microcode{struct {
+                    pub fn op(_: *State, _: *Pins) void {}
+                }.op} ** 256;
+                inline for (&final, last) |*pfn, last_pfn| {
+                    if (last_pfn) |final_pfn| {
+                        pfn.* = final_pfn;
+                    }
+                }
+                return final;
             }
         };
     }
@@ -326,10 +340,32 @@ const Exec = struct {
         };
     }
 
+    /// Gets the register index from a r8 addressing mode. Only handles the direct modes in r8
+    fn r8(enc: u3) State.Index {
+        return switch (enc) {
+            0 => .{ .bc = .h },
+            1 => .{ .bc = .l },
+            2 => .{ .de = .h },
+            3 => .{ .de = .l },
+            4 => .{ .hl = .h },
+            5 => .{ .hl = .l },
+            6, 7 => .{ .af = .h },
+        };
+    }
+
+    /// Extracts bits from another integer
+    inline fn extract(
+        from: anytype,
+        idx: std.math.Log2Int(@TypeOf(from)),
+        cnt: u16,
+    ) std.meta.Int(.unsigned, cnt) {
+        return @truncate(from >> idx);
+    }
+
     /// Reads from the bus a value. Set the address pins before starting the read bus operation
     fn ReadBus(comptime reg: State.Index) type {
         return struct {
-            pub fn op(comptime stage: u2, state: *State, pins: *Pins) void {
+            pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
                     0 => {
                         pins.*.rd = true;
@@ -347,7 +383,7 @@ const Exec = struct {
     /// Writes to the bus a value. Set the address pins before starting the write bus operation
     fn WriteBus(comptime reg: State.Index) type {
         return struct {
-            pub fn op(comptime stage: u2, state: *State, pins: *Pins) void {
+            pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
                     0 => {
                         pins.*.rd = true;
@@ -368,12 +404,38 @@ const Exec = struct {
     /// Increments the program counter and stores it to the variable
     fn Fetch(comptime reg: State.Index) type {
         return struct {
-            pub fn op(comptime stage: u2, state: *State, pins: *Pins) void {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 if (stage == 0) {
                     pins.addr = state.pc.w;
                     state.pc.w += 1;
                 }
-                ReadBus(reg).op(stage, state, pins);
+                ReadBus(reg).op(ir, stage, state, pins);
+            }
+        };
+    }
+
+    /// Transfers from 1 8 bit register to another 8 bit register
+    fn Transfer(comptime dst: u3, comptime src: union(enum) { ir: u3, reg: State.Index }) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    const from = switch (src) {
+                        .ir => |idx| state.idx(r8(extract(ir, idx, 3))).*,
+                        .reg => |reg| state.idx(reg).*,
+                    };
+                    state.idx(r8(extract(ir, dst, 3))).* = from;
+                }
+            }
+        };
+    }
+
+    /// Do multiple operations in one machine cycle
+    fn Join(comptime ops: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
+                inline for (ops) |code| {
+                    code.op(ir, stage, state, pins);
+                }
             }
         };
     }
@@ -382,6 +444,11 @@ const Exec = struct {
     /// This basically encodes the instruction set architecture
     const decoder = Decoder.init
         .instr("00000000", .{Fetch(.ir)}) // nop
+        .instr("01xxxxxx", .{Join(.{ Fetch(.ir), Transfer(3, .{ .ir = 0 }) })}) // ld r8, 'r8
+        .instr("00xxx110", .{
+            Fetch(.{ .z = .l }),
+            Join(.{ Fetch(.ir), Transfer(3, .{ .reg = .{ .z = .l } }) }),
+        }) // ld r8, n
         .Build();
 };
 
@@ -394,16 +461,16 @@ pub inline fn tick(state: *State, pins: *Pins) void {
 const Tester = struct {
     /// Cpu state
     state: State,
-    
+
     /// Cpu pins
     pins: Pins,
-    
+
     /// What is in the rom area
     rom: [0x8000]u8,
-    
+
     /// What is in the ram area
     ram: [0x2000]u8,
-    
+
     /// Creates initial tester state
     fn init(rom: []const u8) @This() {
         var this = @This(){
@@ -415,13 +482,13 @@ const Tester = struct {
         @memcpy(this.rom[0..rom.len], rom[0..]);
         return this;
     }
-    
+
     /// Run the simulation n+4 ticks (due to first opcode loaded in always being NOP)
     fn run(this: *@This(), ticks: usize) void {
         var n: usize = 0;
         while (n < ticks + 4) : (n += 1) {
             tick(&this.state, &this.pins);
-            
+
             // Respond to pins so that we can test expected state of cpu
             if (this.pins.addr < 0x8000) {
                 if (this.pins.rd) {
@@ -439,8 +506,21 @@ const Tester = struct {
 };
 
 test "nop" {
-    var tester = Tester.init(&.{0x00, 0x42});
+    var tester = Tester.init(&.{ 0x00, 0x42 });
     tester.run(4);
     try std.testing.expectEqual(2, tester.state.pc.w);
     try std.testing.expectEqual(0x42, tester.state.ir.b);
+}
+
+test "ld r8, 'r8" {
+    var tester = Tester.init(&.{0b01_000_001}); // ld b, c
+    tester.state.bc.b.l = 0x42;
+    tester.run(4);
+    try std.testing.expectEqual(0x42, tester.state.bc.b.h);
+}
+
+test "ld r8, n" {
+    var tester = Tester.init(&.{ 0b00_111_110, 0x42 }); // ld a, 0x42
+    tester.run(8);
+    try std.testing.expectEqual(0x42, tester.state.af.b.h);
 }
