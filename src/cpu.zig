@@ -397,21 +397,6 @@ const Exec = struct {
         };
     }
 
-    /// Convert 3-bit register encoding to register index.
-    /// This maps the r8 addressing mode used in many Game Boy DMG instructions:
-    /// 000=B, 001=C, 010=D, 011=E, 100=H, 101=L, 110=(HL), 111=A
-    fn r8(enc: u3) []const u8 {
-        return switch (enc) {
-            0 => "bc.h", // B register
-            1 => "bc.l", // C register
-            2 => "de.h", // D register
-            3 => "de.l", // E register
-            4 => "hl.h", // H register
-            5 => "hl.l", // L register
-            6, 7 => "af.h", // (HL) or A register
-        };
-    }
-
     /// Extract a range of bits from an integer.
     /// Helper function for decoding instruction bit fields.
     inline fn extract(
@@ -429,9 +414,9 @@ const Exec = struct {
     /// 1: Assert chip select
     /// 2: Wait state
     /// 3: Latch data
-    fn ReadBus(comptime reg: []const u8) type {
+    fn ReadBus(comptime reg: anytype) type {
         return struct {
-            pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
                     0 => {
                         pins.*.rd = true;
@@ -440,7 +425,7 @@ const Exec = struct {
                     },
                     1 => pins.*.cs = cs(pins.*.addr),
                     2 => {}, // Wait state for memory access
-                    3 => state.idx(reg).* = pins.*.data,
+                    3 => r8(reg, ir, state).* = pins.*.data,
                 }
             }
         };
@@ -453,19 +438,19 @@ const Exec = struct {
     /// 1: Assert chip select
     /// 2: Output data and assert write
     /// 3: Complete write cycle
-    fn WriteBus(comptime reg: []const u8) type {
+    fn WriteBus(comptime reg: anytype) type {
         return struct {
-            pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
                     0 => {
-                        pins.*.rd = true;
+                        pins.*.rd = false;
                         pins.*.wr = false;
                         pins.*.cs = true;
                     },
                     1 => pins.*.cs = cs(pins.*.addr),
                     2 => {
                         pins.*.wr = true;
-                        pins.*.data = state.idx(reg).*;
+                        pins.*.data = r8(reg, ir, state).*;
                     },
                     3 => {}, // Complete write cycle
                 }
@@ -491,14 +476,21 @@ const Exec = struct {
     /// Convenience function that combines address setup and bus read in one operation.
     /// Sets the address bus to the value of a 16-bit register, then reads data into an 8-bit reg.
     /// This is a common pattern for memory-indirect operations like LD r8,(HL).
-    fn ReadBusReg(comptime addr: []const u8, comptime reg: []const u8) type {
+    fn ReadBusReg(comptime addr: []const u8, comptime reg: anytype) type {
         return Join(.{ AssertAddrReg(addr), ReadBus(reg) });
+    }
+
+    /// Convenience function that combines address setup and bus write in one operation.
+    /// Sets the address bus to the value of a 16-bit register, then writes data from an 8-bit register.
+    /// This is a common pattern for memory-indirect store operations like LD (HL),r8.
+    fn WriteBusReg(comptime addr: []const u8, comptime reg: anytype) type {
+        return Join(.{ AssertAddrReg(addr), WriteBus(reg) });
     }
 
     /// Instruction fetch microcode generator.
     /// Combines PC increment with bus read to fetch the next byte from memory.
     /// This is the standard way Game Boy DMG fetches instruction bytes and immediate data.
-    fn Fetch(comptime reg: []const u8) type {
+    fn Fetch(comptime reg: anytype) type {
         return struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
                 switch (stage) {
@@ -517,10 +509,18 @@ const Exec = struct {
     /// Accepts either a bit position (for instruction-encoded regs) or a string (for direct regs).
     /// Examples: target(3, ir, state) extracts register from bits 5-3 of instruction
     ///          target("z.l", ir, state) directly references the z.l register
-    fn target(comptime reg: anytype, comptime ir: u8, state: *State) *u8 {
+    fn r8(comptime reg: anytype, comptime ir: u8, state: *State) *u8 {
         return switch (@TypeOf(reg)) {
             // Register encoded in instruction - extract bits and map to register
-            comptime_int, u3 => state.idx(r8(extract(ir, reg, 3))),
+            comptime_int, u3 => state.idx(switch (extract(ir, reg, 3)) {
+                0 => "bc.h", // B register
+                1 => "bc.l", // C register
+                2 => "de.h", // D register
+                3 => "de.l", // E register
+                4 => "hl.h", // H register
+                5 => "hl.l", // L register
+                6, 7 => "af.h", // (HL) or A register
+            }),
             // Direct register reference - use string directly
             else => state.idx(reg),
         };
@@ -534,7 +534,7 @@ const Exec = struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
                 switch (stage) {
                     // Transfer happens immediately in cycle 0
-                    0 => target(dst, ir, state).* = target(src, ir, state).*,
+                    0 => r8(dst, ir, state).* = r8(src, ir, state).*,
                     else => {},
                 }
             }
@@ -565,13 +565,18 @@ const Exec = struct {
         .add("01xxxxxx", .{Join(.{ Fetch("ir"), Transfer(3, 0) })})
         // LD r8,n - load immediate 8-bit value
         .add("00xxx110", .{
-            Fetch("z.l"),                               // Fetch immediate byte into temp
+            Fetch("z.l"), // Fetch immediate byte into temp
             Join(.{ Fetch("ir"), Transfer(3, "z.l") }), // Move temp to dest, fetch next instruction
         })
         // LD r8,(HL) - load from memory address in HL register
         .add("01xxx110", .{
-            ReadBusReg("hl", "z.l"),                    // Read byte from [HL] into temp
+            ReadBusReg("hl", "z.l"), // Read byte from [HL] into temp
             Join(.{ Fetch("ir"), Transfer(3, "z.l") }), // Move temp to dest, fetch next instruction
+        })
+        // LD (HL),r8 - store to memory address in HL register
+        .add("01110xxx", .{
+            WriteBusReg("hl", 0), // Read byte from r8 at bit index 0 into [HL]
+            Fetch("ir"), // Fetch next instruction
         })
         .Build(null);
 };
@@ -609,10 +614,28 @@ const Tester = struct {
     /// Run CPU simulation for specified number of ticks.
     /// Includes bus simulation to respond to memory accesses.
     /// Note: +4 ticks accounts for initial NOP instruction fetch.
-    fn run(this: *@This(), ticks: usize) void {
+    fn run(this: *@This(), ticks: usize, verbose: bool) void {
         var n: usize = 0;
         while (n < ticks + 4) : (n += 1) {
             tick(&this.state, &this.pins);
+
+            if (verbose) {
+                std.debug.print("tick: {}\nregs: \n", .{n});
+                inline for (comptime std.meta.fieldNames(State)) |name| {
+                    switch (@FieldType(State, name)) {
+                        State.Reg(16) => std.debug.print(
+                            "\t{s}: {X:0>4}\n",
+                            .{ name, @field(this.*.state, name).w },
+                        ),
+                        State.Reg(8) => std.debug.print(
+                            "\t{s}: {X:0>2}\n",
+                            .{ name, @field(this.*.state, name).b },
+                        ),
+                        else => {},
+                    }
+                }
+                std.debug.print("\n", .{});
+            }
 
             // Simulate Game Boy memory system responses
             if (this.pins.addr < 0x8000) {
@@ -628,6 +651,10 @@ const Tester = struct {
                     this.ram[this.pins.addr - 0xC000] = this.pins.data;
                 }
             }
+
+            if (verbose) {
+                std.debug.print("pins: {}\n", .{this.*.pins});
+            }
         }
     }
 };
@@ -636,7 +663,7 @@ const Tester = struct {
 
 test "nop" {
     var tester = Tester.init(&.{ 0x00, 0x42 });
-    tester.run(4);
+    tester.run(4, false);
     try std.testing.expectEqual(2, tester.state.pc.w); // PC should advance by 2
     try std.testing.expectEqual(0x42, tester.state.ir.b); // Should have fetched 0x42
 }
@@ -644,13 +671,13 @@ test "nop" {
 test "ld r8, r8" {
     var tester = Tester.init(&.{0b01_000_001}); // LD B,C
     tester.state.bc.b.l = 0x42; // Set C = 0x42
-    tester.run(4);
+    tester.run(4, false);
     try std.testing.expectEqual(0x42, tester.state.bc.b.h); // B should now equal C
 }
 
 test "ld r8, n" {
     var tester = Tester.init(&.{ 0b00_111_110, 0x42 }); // LD A,0x42
-    tester.run(8);
+    tester.run(8, false);
     try std.testing.expectEqual(0x42, tester.state.af.b.h); // A should equal 0x42
 }
 
@@ -658,6 +685,14 @@ test "ld r8, (hl)" {
     var tester = Tester.init(&.{0b01_111_110}); // LD A,(HL)
     tester.state.hl.w = 0xC000;
     tester.ram[0] = 0x42;
-    tester.run(8);
+    tester.run(8, false);
     try std.testing.expectEqual(0x42, tester.state.af.b.h); // A should equal 0x42
+}
+
+test "ld (hl), r8" {
+    var tester = Tester.init(&.{0b01_110_111}); // LD (HL),A
+    tester.state.hl.w = 0xC000;
+    tester.state.af.b.h = 0x42;
+    tester.run(8, false);
+    try std.testing.expectEqual(0x42, tester.ram[0]); // [0xC000] should equal 0x42
 }
