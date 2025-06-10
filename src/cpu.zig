@@ -45,7 +45,7 @@ const std = @import("std");
 /// Represents the physical pins on a Game Boy DMG CPU chip.
 /// This packed struct mirrors the actual hardware interface that would be used
 /// to communicate with external components like cartridge ROM/RAM and internal components.
-pub const Pins = packed struct {
+pub const Pins = struct {
     /// 16-bit address bus (output from CPU)
     /// Specifies the memory address the CPU wants to access
     addr: u16,
@@ -230,18 +230,18 @@ const Decoder = struct {
         /// - '1': bit must be 1
         /// - 'x': bit can be either 0 or 1 (don't care)
         /// Example: "01xxxxxx" matches opcodes 0x40-0x7F
-        fn init(comptime enc: *const [8]u8, comptime code: []const type) @This() {
+        fn init(comptime pattern: *const [8]u8, comptime code: []const type) @This() {
             @setEvalBranchQuota(1000000);
             var ones: u8 = 0; // Required '1' bits
             var care: u8 = 0; // Bits we care about (not 'x')
 
             // Parse the encoding string
-            for (enc, 0..) |c, i| {
+            for (pattern, 0..) |c, i| {
                 switch (c) {
                     '0', '1', 'x' => {},
                     else => @compileError(std.fmt.comptimePrint(
                         "Expected '0', '1' or 'x' in encoding string but found \"{}\"",
-                        .{enc},
+                        .{pattern},
                     )),
                 }
                 const bit = 1 << 7 - i;
@@ -276,9 +276,9 @@ const Decoder = struct {
 
     /// Add a new instruction encoding to the decoder.
     /// Maintains proper ordering (most specific encodings first).
-    fn instr(comptime this: @This(), comptime enc: *const [8]u8, comptime code: anytype) @This() {
+    fn add(comptime this: @This(), comptime pattern: *const [8]u8, comptime code: anytype) @This() {
         const codes = @as([code.len]type, code);
-        const encoding = Encoding.init(enc, &codes);
+        const encoding = Encoding.init(pattern, &codes);
 
         // Find insertion point to maintain specificity order
         const idx = std.sort.lowerBound(Encoding, this.encoders, encoding, struct {
@@ -295,7 +295,9 @@ const Decoder = struct {
 
     /// Build the final opcode lookup table and link all microcode together.
     /// Returns a type containing the completed lookup table.
-    fn Build(comptime this: @This()) type {
+    /// `nextlut` is the decoder lut that will be used when following the IR pointer. Leave null
+    /// to use this decoder lut.
+    fn Build(comptime this: @This(), comptime nextlut: ?type) type {
         return struct {
             /// 256-entry lookup table mapping opcodes to microcode entry points.
             /// This is the main interface used by the CPU execution engine.
@@ -323,9 +325,9 @@ const Decoder = struct {
 
             /// Link microcode stages together into executable sequences.
             /// Each instruction executes as a series of 4-cycle machine operations.
-            fn link(comptime enc: Encoding) [256]*const Microcode {
-                const noir = enc.code[enc.code.len - 1] == NoIr;
-                comptime var state = enc.code.len - @intFromBool(noir);
+            fn link(comptime encoding: Encoding) [256]*const Microcode {
+                const noir = encoding.code[encoding.code.len - 1] == NoIr;
+                comptime var state = encoding.code.len - @intFromBool(noir);
                 comptime var last = [1]?*const Microcode{null} ** 256;
 
                 // Process each microcode stage (working backwards for linking)
@@ -337,7 +339,7 @@ const Decoder = struct {
                     inline while (stage != 0) {
                         stage -= 1;
                         inline for (0..last.len) |byte| {
-                            if (!enc.mask.isSet(byte)) {
+                            if (!encoding.mask.isSet(byte)) {
                                 continue; // Skip opcodes this encoding doesn't handle
                             }
 
@@ -345,14 +347,18 @@ const Decoder = struct {
                             last[byte] = struct {
                                 fn op(s: *State, p: *Pins) void {
                                     // Execute this stage
-                                    enc.code[state].op(byte, stage, s, p);
+                                    encoding.code[state].op(byte, stage, s, p);
 
                                     // Link to next stage or set IR-based microcode
                                     if (last[byte]) |pfn| {
                                         s.exec.stage = pfn; // Continue to next stage
                                     } else if (!noir) {
                                         // Auto-set microcode from IR lookup
-                                        s.exec.stage = lut[s.ir.b];
+                                        if (nextlut) |next| {
+                                            s.exec.stage = @field(next, lut)[s.ir.b];
+                                        } else {
+                                            s.exec.stage = lut[s.ir.b];
+                                        }
                                     }
                                 }
                             }.op;
@@ -474,11 +480,18 @@ const Exec = struct {
     fn AssertAddrReg(comptime reg: []const u8) type {
         return struct {
             pub fn op(comptime _: u8, comptime stage: u2, state: *State, pins: *Pins) void {
-                if (stage == 0) {
-                    pins.addr = state.idx(reg).*;
+                switch (stage) {
+                    0 => pins.addr = state.idx(reg).*,
+                    else => {},
                 }
             }
         };
+    }
+
+    /// Assert a 16-bit register onto the address lines and read it into
+    /// a different 8-bit register.
+    fn ReadBusReg(comptime addr: []const u8, comptime reg: []const u8) type {
+        return Join(.{ AssertAddrReg(addr), ReadBus(reg) });
     }
 
     /// Instruction fetch microcode generator.
@@ -487,46 +500,39 @@ const Exec = struct {
     fn Fetch(comptime reg: []const u8) type {
         return struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
-                if (stage == 0) {
-                    pins.addr = state.pc.w;
-                    state.pc.w += 1; // Increment PC for next fetch
+                switch (stage) {
+                    0 => {
+                        pins.addr = state.pc.w;
+                        state.pc.w += 1; // Increment PC for next fetch
+                    },
+                    else => {},
                 }
                 ReadBus(reg).op(ir, stage, state, pins);
             }
         };
     }
 
-    /// Used in the transfer generator to specify a register from the opcode or hardcoded
-    /// Represents a register target for microcode operations.
-    /// Allows specifying registers either directly by name or indirectly through instruction encoding.
-    const TargetReg = union(enum) {
-        /// Register is encoded in the instruction at the specified bit position.
-        /// The 3-bit value is used with r8() to determine the actual register.
-        ir: u3,
-
-        /// Direct register reference using string notation (e.g., "af.h", "bc.l", "hl").
-        reg: []const u8,
-
-        /// Get a pointer to the actual register this target represents.
-        /// Resolves both instruction-encoded and direct register references.
-        fn get(comptime this: @This(), comptime ir: u8, state: *State) *u8 {
-            return switch (this) {
-                // Register encoded in instruction - extract bits and map to register
-                .ir => |idx| state.idx(r8(extract(ir, idx, 3))),
-                // Direct register reference - use string directly
-                .reg => |reg| state.idx(reg),
-            };
-        }
-    };
+    /// Get a pointer to the actual register this target represents.
+    /// Resolves both instruction-encoded and direct register references.
+    fn target(comptime reg: anytype, comptime ir: u8, state: *State) *u8 {
+        return switch (@TypeOf(reg)) {
+            // Register encoded in instruction - extract bits and map to register
+            comptime_int, u3 => state.idx(r8(extract(ir, reg, 3))),
+            // Direct register reference - use string directly
+            else => state.idx(reg),
+        };
+    }
 
     /// Register transfer microcode generator.
     /// Implements register-to-register moves that complete in a single cycle.
     /// Uses the new TargetReg system for flexible register addressing.
-    fn Transfer(comptime dst: TargetReg, comptime src: TargetReg) type {
+    fn Transfer(comptime dst: anytype, comptime src: anytype) type {
         return struct {
             pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
-                if (stage == 0) { // Transfer happens immediately in cycle 0
-                    dst.get(ir, state).* = src.get(ir, state).*;
+                switch (stage) {
+                    // Transfer happens immediately in cycle 0
+                    0 => target(dst, ir, state).* = target(src, ir, state).*,
+                    else => {},
                 }
             }
         };
@@ -547,25 +553,21 @@ const Exec = struct {
     /// Complete Game Boy DMG instruction set decoder with microcode implementations.
     /// This defines the actual instruction set architecture of the emulated CPU.
     const decoder = Decoder.init
-        .instr("00000000", .{ // NOP - just fetch next instruction
-            Fetch("ir"),
-        })
-        .instr("01xxxxxx", .{ // LD r8,r8 - register to register
-            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .ir = 0 }) }),
-        })
-        .instr("00xxx110", .{ // LD r8,n - load immediate byte
+        .add("00000000", .{Fetch("ir")})
+        .add("01xxxxxx", .{Join(.{ Fetch("ir"), Transfer(3, 0) })})
+        .add("00xxx110", .{
             // Fetch immediate byte into temp register
             Fetch("z.l"),
             // Transfer to destination and fetch next
-            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg = "z.l" }) }),
+            Join(.{ Fetch("ir"), Transfer(3, "z.l") }),
         })
-        .instr("01xxx110", .{ // LD r8, (hl) - load from memory address in HL
+        .add("01xxx110", .{ // LD r8, (hl) - load from memory address in HL
             // Set address bus to HL and read byte into temp register
-            Join(.{ AssertAddrReg("hl"), ReadBus("z.l") }),
+            ReadBusReg("hl", "z.l"),
             // Transfer temp register to destination and fetch next instruction
-            Join(.{ Fetch("ir"), Transfer(.{ .ir = 3 }, .{ .reg = "z.l" }) }),
+            Join(.{ Fetch("ir"), Transfer(3, "z.l") }),
         })
-        .Build();
+        .Build(null);
 };
 
 /// Execute one CPU clock cycle.
