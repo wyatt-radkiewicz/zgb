@@ -488,8 +488,9 @@ const Exec = struct {
         };
     }
 
-    /// Assert a 16-bit register onto the address lines and read it into
-    /// a different 8-bit register.
+    /// Convenience function that combines address setup and bus read in one operation.
+    /// Sets the address bus to the value of a 16-bit register, then reads data into an 8-bit reg.
+    /// This is a common pattern for memory-indirect operations like LD r8,(HL).
     fn ReadBusReg(comptime addr: []const u8, comptime reg: []const u8) type {
         return Join(.{ AssertAddrReg(addr), ReadBus(reg) });
     }
@@ -512,8 +513,10 @@ const Exec = struct {
         };
     }
 
-    /// Get a pointer to the actual register this target represents.
-    /// Resolves both instruction-encoded and direct register references.
+    /// Unified register target resolution function.
+    /// Accepts either a bit position (for instruction-encoded regs) or a string (for direct regs).
+    /// Examples: target(3, ir, state) extracts register from bits 5-3 of instruction
+    ///          target("z.l", ir, state) directly references the z.l register
     fn target(comptime reg: anytype, comptime ir: u8, state: *State) *u8 {
         return switch (@TypeOf(reg)) {
             // Register encoded in instruction - extract bits and map to register
@@ -552,20 +555,23 @@ const Exec = struct {
 
     /// Complete Game Boy DMG instruction set decoder with microcode implementations.
     /// This defines the actual instruction set architecture of the emulated CPU.
+    /// Game Boy DMG instruction set implementation.
+    /// Each .add() call defines an instruction with its bit pattern and microcode sequence.
+    /// Patterns use: '0'/'1' for fixed bits, 'x' for variable bits.
     const decoder = Decoder.init
+        // NOP - just fetch next instruction
         .add("00000000", .{Fetch("ir")})
+        // LD r8,r8 - copy register to register
         .add("01xxxxxx", .{Join(.{ Fetch("ir"), Transfer(3, 0) })})
+        // LD r8,n - load immediate 8-bit value
         .add("00xxx110", .{
-            // Fetch immediate byte into temp register
-            Fetch("z.l"),
-            // Transfer to destination and fetch next
-            Join(.{ Fetch("ir"), Transfer(3, "z.l") }),
+            Fetch("z.l"),                               // Fetch immediate byte into temp
+            Join(.{ Fetch("ir"), Transfer(3, "z.l") }), // Move temp to dest, fetch next instruction
         })
-        .add("01xxx110", .{ // LD r8, (hl) - load from memory address in HL
-            // Set address bus to HL and read byte into temp register
-            ReadBusReg("hl", "z.l"),
-            // Transfer temp register to destination and fetch next instruction
-            Join(.{ Fetch("ir"), Transfer(3, "z.l") }),
+        // LD r8,(HL) - load from memory address in HL register
+        .add("01xxx110", .{
+            ReadBusReg("hl", "z.l"),                    // Read byte from [HL] into temp
+            Join(.{ Fetch("ir"), Transfer(3, "z.l") }), // Move temp to dest, fetch next instruction
         })
         .Build(null);
 };
