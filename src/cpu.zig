@@ -553,12 +553,556 @@ const Exec = struct {
         };
     }
 
+    // === Stub microcode functions for unimplemented operations ===
+    // These need proper implementation - currently act as NOPs
+
+    fn Transfer16(comptime dst: anytype, comptime src: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 16-bit register transfer
+                    _ = ir;
+                    _ = state;
+                    _ = dst;
+                    _ = src;
+                }
+            }
+        };
+    }
+
+    fn SetHighAddr(comptime offset_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, pins: *Pins) void {
+                switch (stage) {
+                    0 => pins.*.addr = 0xFF00 + r8(offset_reg, ir, state).*,
+                    else => {},
+                }
+            }
+        };
+    }
+
+    fn IncDec8(comptime reg_pos: anytype, comptime is_inc: bool) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit increment/decrement with flags
+                    _ = ir;
+                    _ = state;
+                    _ = reg_pos;
+                    _ = is_inc;
+                }
+            }
+        };
+    }
+
+    fn IncDec8Direct(comptime reg: []const u8, comptime is_inc: bool) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit increment/decrement
+                    _ = ir;
+                    _ = state;
+                    _ = reg;
+                    _ = is_inc;
+                }
+            }
+        };
+    }
+
+    fn IncDec16(comptime reg_pos: anytype, comptime is_inc: bool) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 16-bit increment/decrement
+                    _ = ir;
+                    _ = state;
+                    _ = reg_pos;
+                    _ = is_inc;
+                }
+            }
+        };
+    }
+
+    fn Add8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit addition with flags
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Add8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit addition
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn Adc8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit addition with carry
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Adc8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit addition with carry
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn Sub8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit subtraction with flags
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Sub8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit subtraction
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn Sbc8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit subtraction with carry
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Sbc8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit subtraction with carry
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn And8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit logical AND
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn And8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit logical AND
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn Xor8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit logical XOR
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Xor8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit logical XOR
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn Or8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit logical OR
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Or8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit logical OR
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn Cp8(comptime src_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement 8-bit compare (subtract without storing result)
+                    _ = ir;
+                    _ = state;
+                    _ = src_pos;
+                }
+            }
+        };
+    }
+
+    fn Cp8Direct(comptime src_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Implement direct 8-bit compare
+                    _ = ir;
+                    _ = state;
+                    _ = src_reg;
+                }
+            }
+        };
+    }
+
+    fn SetPC(comptime addr_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Set PC to address in register
+                    _ = ir;
+                    _ = state;
+                    _ = addr_reg;
+                }
+            }
+        };
+    }
+
+    fn NoIrOp() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                // This is used with NoIr to prevent auto-fetching next instruction
+                _ = ir;
+                _ = stage;
+                _ = state;
+            }
+        };
+    }
+
+    fn JumpCond(comptime cc_pos: anytype, comptime addr_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Jump if condition is met, otherwise continue to next instruction
+                    _ = ir;
+                    _ = state;
+                    _ = cc_pos;
+                    _ = addr_reg;
+                }
+            }
+        };
+    }
+
+    fn JumpRel(comptime offset_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Add signed offset to PC
+                    _ = ir;
+                    _ = state;
+                    _ = offset_reg;
+                }
+            }
+        };
+    }
+
+    fn JumpRelCond(comptime cc_pos: anytype, comptime offset_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Jump relative if condition is met
+                    _ = ir;
+                    _ = state;
+                    _ = cc_pos;
+                    _ = offset_reg;
+                }
+            }
+        };
+    }
+
+    fn DecSP() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Decrement stack pointer
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn IncSP() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Increment stack pointer
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn GetPushReg(comptime rr_pos: anytype, comptime is_high: bool) []const u8 {
+        // TODO: Return correct register name for push operations
+        _ = rr_pos;
+        _ = is_high;
+        return "z.l"; // Placeholder
+    }
+
+    fn GetPopReg(comptime rr_pos: anytype, comptime is_high: bool) []const u8 {
+        // TODO: Return correct register name for pop operations
+        _ = rr_pos;
+        _ = is_high;
+        return "z.l"; // Placeholder
+    }
+
+    fn CallCond(comptime cc_pos: anytype, comptime addr_reg: []const u8) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Call if condition is met
+                    _ = ir;
+                    _ = state;
+                    _ = cc_pos;
+                    _ = addr_reg;
+                }
+            }
+        };
+    }
+
+    fn RetCond(comptime cc_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Return if condition is met
+                    _ = ir;
+                    _ = state;
+                    _ = cc_pos;
+                }
+            }
+        };
+    }
+
+    fn EnableInterrupts() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Enable interrupts
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn DisableInterrupts() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Disable interrupts
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn RestartJump(comptime rst_pos: anytype) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Jump to restart vector (rst_pos * 8)
+                    _ = ir;
+                    _ = state;
+                    _ = rst_pos;
+                }
+            }
+        };
+    }
+
+    fn HaltCPU() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Halt CPU until interrupt
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn StopCPU() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Stop CPU and LCD
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn ComplementCarry() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Complement carry flag
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn SetCarry() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Set carry flag
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn ComplementA() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Complement A register (bitwise NOT)
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn DecimalAdjust() type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Decimal adjust A for BCD arithmetic
+                    _ = ir;
+                    _ = state;
+                }
+            }
+        };
+    }
+
+    fn RotateLeftA(comptime through_carry: bool) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Rotate A left (circular or through carry)
+                    _ = ir;
+                    _ = state;
+                    _ = through_carry;
+                }
+            }
+        };
+    }
+
+    fn RotateRightA(comptime through_carry: bool) type {
+        return struct {
+            pub fn op(comptime ir: u8, comptime stage: u2, state: *State, _: *Pins) void {
+                if (stage == 0) {
+                    // TODO: Rotate A right (circular or through carry)
+                    _ = ir;
+                    _ = state;
+                    _ = through_carry;
+                }
+            }
+        };
+    }
+
     /// Complete Game Boy DMG instruction set decoder with microcode implementations.
     /// This defines the actual instruction set architecture of the emulated CPU.
     /// Game Boy DMG instruction set implementation.
     /// Each .add() call defines an instruction with its bit pattern and microcode sequence.
     /// Patterns use: '0'/'1' for fixed bits, 'x' for variable bits.
     const decoder = Decoder.init
+        // === 8-bit Load Instructions ===
         // NOP - just fetch next instruction
         .add("00000000", .{Fetch("ir")})
         // LD r8,r8 - copy register to register
@@ -575,9 +1119,320 @@ const Exec = struct {
         })
         // LD (HL),r8 - store to memory address in HL register
         .add("01110xxx", .{
-            WriteBusReg("hl", 0), // Read byte from r8 at bit index 0 into [HL]
+            WriteBusReg("hl", 0), // Write r8 at bit index 0 to [HL]
             Fetch("ir"), // Fetch next instruction
         })
+        // LD (HL),n - store immediate to memory address in HL
+        .add("00110110", .{
+            Fetch("z.l"), // Fetch immediate byte
+            WriteBusReg("hl", "z.l"), // Write immediate to [HL]
+            Fetch("ir"), // Fetch next instruction
+        })
+
+        // === 16-bit Load Instructions ===
+        // LD rr,nn - load 16-bit immediate into register pair
+        .add("00xx0001", .{
+            Fetch("z.l"), // Fetch low byte
+            Fetch("z.h"), // Fetch high byte
+            Join(.{ Fetch("ir"), Transfer16(4, "z") }), // Move to destination register pair
+        })
+        // LD SP,HL - copy HL to SP
+        .add("11111001", .{Join(.{ Fetch("ir"), Transfer16("sp", "hl") })})
+
+        // === Memory Load Instructions ===
+        // LD A,(BC) - load from address in BC
+        .add("00001010", .{
+            ReadBusReg("bc", "af.h"), // Read from [BC] into A
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LD A,(DE) - load from address in DE
+        .add("00011010", .{
+            ReadBusReg("de", "af.h"), // Read from [DE] into A
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LD (BC),A - store A to address in BC
+        .add("00000010", .{
+            WriteBusReg("bc", "af.h"), // Write A to [BC]
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LD (DE),A - store A to address in DE
+        .add("00010010", .{
+            WriteBusReg("de", "af.h"), // Write A to [DE]
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LD A,(nn) - load from 16-bit address
+        .add("11111010", .{
+            Fetch("z.l"), // Fetch address low byte
+            Fetch("z.h"), // Fetch address high byte
+            ReadBusReg("z", "af.h"), // Read from [nn] into A
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LD (nn),A - store A to 16-bit address
+        .add("11101010", .{
+            Fetch("z.l"), // Fetch address low byte
+            Fetch("z.h"), // Fetch address high byte
+            WriteBusReg("z", "af.h"), // Write A to [nn]
+            Fetch("ir"), // Fetch next instruction
+        })
+
+        // === High Memory Instructions ===
+        // LDH A,(n) - load from high memory (0xFF00+n)
+        .add("11110000", .{
+            Fetch("z.l"), // Fetch offset
+            Join(.{ SetHighAddr("z.l"), ReadBus("af.h") }), // Read from 0xFF00+n into A
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LDH (n),A - store to high memory (0xFF00+n)
+        .add("11100000", .{
+            Fetch("z.l"), // Fetch offset
+            Join(.{ SetHighAddr("z.l"), WriteBus("af.h") }), // Write A to 0xFF00+n
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LDH A,(C) - load from high memory (0xFF00+C)
+        .add("11110010", .{
+            Join(.{ SetHighAddr("bc.l"), ReadBus("af.h") }), // Read from 0xFF00+C into A
+            Fetch("ir"), // Fetch next instruction
+        })
+        // LDH (C),A - store to high memory (0xFF00+C)
+        .add("11100010", .{
+            Join(.{ SetHighAddr("bc.l"), WriteBus("af.h") }), // Write A to 0xFF00+C
+            Fetch("ir"), // Fetch next instruction
+        })
+
+        // === Increment/Decrement Instructions ===
+        // INC r8 - increment 8-bit register
+        .add("00xxx100", .{Join(.{ Fetch("ir"), IncDec8(3, true) })})
+        // DEC r8 - decrement 8-bit register
+        .add("00xxx101", .{Join(.{ Fetch("ir"), IncDec8(3, false) })})
+        // INC (HL) - increment memory at HL
+        .add("00110100", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ IncDec8Direct("z.l", true), WriteBusReg("hl", "z.l") }), // Inc and write back
+            Fetch("ir"), // Fetch next instruction
+        })
+        // DEC (HL) - decrement memory at HL
+        .add("00110101", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ IncDec8Direct("z.l", false), WriteBusReg("hl", "z.l") }), // Dec and write back
+            Fetch("ir"), // Fetch next instruction
+        })
+
+        // === 16-bit Arithmetic ===
+        // INC rr - increment 16-bit register
+        .add("00xx0011", .{Join(.{ Fetch("ir"), IncDec16(4, true) })})
+        // DEC rr - decrement 16-bit register
+        .add("00xx1011", .{Join(.{ Fetch("ir"), IncDec16(4, false) })})
+
+        // === Arithmetic Instructions ===
+        // ADD A,r8 - add register to A
+        .add("10000xxx", .{Join(.{ Fetch("ir"), Add8(0) })})
+        // ADD A,n - add immediate to A
+        .add("11000110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Add8Direct("z.l") }), // Add immediate to A
+        })
+        // ADD A,(HL) - add memory to A
+        .add("10000110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Add8Direct("z.l") }), // Add to A
+        })
+        // ADC A,r8 - add with carry
+        .add("10001xxx", .{Join(.{ Fetch("ir"), Adc8(0) })})
+        // ADC A,n - add immediate with carry
+        .add("11001110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Adc8Direct("z.l") }), // Add with carry to A
+        })
+        // ADC A,(HL) - add memory with carry
+        .add("10001110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Adc8Direct("z.l") }), // Add with carry to A
+        })
+
+        // === Subtraction Instructions ===
+        // SUB r8 - subtract register from A
+        .add("10010xxx", .{Join(.{ Fetch("ir"), Sub8(0) })})
+        // SUB n - subtract immediate from A
+        .add("11010110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Sub8Direct("z.l") }), // Subtract from A
+        })
+        // SUB (HL) - subtract memory from A
+        .add("10010110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Sub8Direct("z.l") }), // Subtract from A
+        })
+        // SBC A,r8 - subtract with carry
+        .add("10011xxx", .{Join(.{ Fetch("ir"), Sbc8(0) })})
+        // SBC A,n - subtract immediate with carry
+        .add("11011110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Sbc8Direct("z.l") }), // Subtract with carry from A
+        })
+        // SBC A,(HL) - subtract memory with carry
+        .add("10011110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Sbc8Direct("z.l") }), // Subtract with carry from A
+        })
+
+        // === Logic Instructions ===
+        // AND r8 - logical AND with A
+        .add("10100xxx", .{Join(.{ Fetch("ir"), And8(0) })})
+        // AND n - logical AND immediate with A
+        .add("11100110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), And8Direct("z.l") }), // AND with A
+        })
+        // AND (HL) - logical AND memory with A
+        .add("10100110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), And8Direct("z.l") }), // AND with A
+        })
+        // XOR r8 - logical XOR with A
+        .add("10101xxx", .{Join(.{ Fetch("ir"), Xor8(0) })})
+        // XOR n - logical XOR immediate with A
+        .add("11101110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Xor8Direct("z.l") }), // XOR with A
+        })
+        // XOR (HL) - logical XOR memory with A
+        .add("10101110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Xor8Direct("z.l") }), // XOR with A
+        })
+        // OR r8 - logical OR with A
+        .add("10110xxx", .{Join(.{ Fetch("ir"), Or8(0) })})
+        // OR n - logical OR immediate with A
+        .add("11110110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Or8Direct("z.l") }), // OR with A
+        })
+        // OR (HL) - logical OR memory with A
+        .add("10110110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Or8Direct("z.l") }), // OR with A
+        })
+        // CP r8 - compare register with A
+        .add("10111xxx", .{Join(.{ Fetch("ir"), Cp8(0) })})
+        // CP n - compare immediate with A
+        .add("11111110", .{
+            Fetch("z.l"), // Fetch immediate
+            Join(.{ Fetch("ir"), Cp8Direct("z.l") }), // Compare with A
+        })
+        // CP (HL) - compare memory with A
+        .add("10111110", .{
+            ReadBusReg("hl", "z.l"), // Read from [HL]
+            Join(.{ Fetch("ir"), Cp8Direct("z.l") }), // Compare with A
+        })
+
+        // === Jump Instructions ===
+        // JP nn - absolute jump
+        .add("11000011", .{
+            Fetch("z.l"), // Fetch address low
+            Fetch("z.h"), // Fetch address high
+            Join(.{ SetPC("z"), NoIrOp() }), // Set PC and don't auto-fetch
+        })
+        // JP cc,nn - conditional jump
+        .add("110xx010", .{
+            Fetch("z.l"), // Fetch address low
+            Fetch("z.h"), // Fetch address high
+            JumpCond(3, "z"), // Jump if condition met
+        })
+        // JP (HL) - jump to address in HL
+        .add("11101001", .{Join(.{ SetPC("hl"), NoIrOp() })})
+        // JR n - relative jump
+        .add("00011000", .{
+            Fetch("z.l"), // Fetch offset
+            Join(.{ JumpRel("z.l"), NoIrOp() }), // Jump relative
+        })
+        // JR cc,n - conditional relative jump
+        .add("001xx000", .{
+            Fetch("z.l"), // Fetch offset
+            JumpRelCond(3, "z.l"), // Jump relative if condition met
+        })
+
+        // === Stack Instructions ===
+        // PUSH rr - push register pair to stack
+        .add("11xx0101", .{
+            Join(.{ DecSP(), WriteBusReg("sp", GetPushReg(4, true)) }), // Push high byte
+            Join(.{ DecSP(), WriteBusReg("sp", GetPushReg(4, false)) }), // Push low byte
+            Fetch("ir"), // Fetch next instruction
+        })
+        // POP rr - pop register pair from stack
+        .add("11xx0001", .{
+            ReadBusReg("sp", GetPopReg(4, false)), // Pop low byte
+            Join(.{ IncSP(), ReadBusReg("sp", GetPopReg(4, true)) }), // Pop high byte
+            Join(.{ IncSP(), Fetch("ir") }), // Increment SP and fetch next
+        })
+
+        // === Call/Return Instructions ===
+        // CALL nn - call subroutine
+        .add("11001101", .{
+            Fetch("z.l"), // Fetch address low
+            Fetch("z.h"), // Fetch address high
+            Join(.{ DecSP(), WriteBusReg("sp", "pc.h") }), // Push PC high
+            Join(.{ DecSP(), WriteBusReg("sp", "pc.l") }), // Push PC low
+            Join(.{ SetPC("z"), NoIrOp() }), // Jump to address
+        })
+        // CALL cc,nn - conditional call
+        .add("110xx100", .{
+            Fetch("z.l"), // Fetch address low
+            Fetch("z.h"), // Fetch address high
+            CallCond(3, "z"), // Call if condition met
+        })
+        // RET - return from subroutine
+        .add("11001001", .{
+            ReadBusReg("sp", "pc.l"), // Pop PC low
+            Join(.{ IncSP(), ReadBusReg("sp", "pc.h") }), // Pop PC high
+            Join(.{ IncSP(), NoIrOp() }), // Increment SP and don't auto-fetch
+        })
+        // RET cc - conditional return
+        .add("110xx000", .{RetCond(3)})
+        // RETI - return and enable interrupts
+        .add("11011001", .{
+            ReadBusReg("sp", "pc.l"), // Pop PC low
+            Join(.{ IncSP(), ReadBusReg("sp", "pc.h") }), // Pop PC high
+            Join(.{ IncSP(), EnableInterrupts(), NoIrOp() }), // Enable interrupts and don't auto-fetch
+        })
+
+        // === Restart Instructions ===
+        // RST n - restart (call to fixed address)
+        .add("11xxx111", .{
+            Join(.{ DecSP(), WriteBusReg("sp", "pc.h") }), // Push PC high
+            Join(.{ DecSP(), WriteBusReg("sp", "pc.l") }), // Push PC low
+            Join(.{ RestartJump(3), NoIrOp() }), // Jump to restart vector
+        })
+
+        // === Miscellaneous Instructions ===
+        // HALT - halt until interrupt
+        .add("01110110", .{Join(.{ HaltCPU(), Fetch("ir") })})
+        // STOP - stop CPU and LCD
+        .add("00010000", .{
+            Fetch("z.l"), // Fetch next byte (should be 0x00)
+            Join(.{ StopCPU(), Fetch("ir") }), // Stop CPU
+        })
+        // DI - disable interrupts
+        .add("11110011", .{Join(.{ DisableInterrupts(), Fetch("ir") })})
+        // EI - enable interrupts
+        .add("11111011", .{Join(.{ EnableInterrupts(), Fetch("ir") })})
+        // CCF - complement carry flag
+        .add("00111111", .{Join(.{ ComplementCarry(), Fetch("ir") })})
+        // SCF - set carry flag
+        .add("00110111", .{Join(.{ SetCarry(), Fetch("ir") })})
+        // CPL - complement A register
+        .add("00101111", .{Join(.{ ComplementA(), Fetch("ir") })})
+        // DAA - decimal adjust A
+        .add("00100111", .{Join(.{ DecimalAdjust(), Fetch("ir") })})
+
+        // === Rotate/Shift Instructions ===
+        // RLCA - rotate A left circular
+        .add("00000111", .{Join(.{ RotateLeftA(false), Fetch("ir") })})
+        // RLA - rotate A left through carry
+        .add("00010111", .{Join(.{ RotateLeftA(true), Fetch("ir") })})
+        // RRCA - rotate A right circular
+        .add("00001111", .{Join(.{ RotateRightA(false), Fetch("ir") })})
+        // RRA - rotate A right through carry
+        .add("00011111", .{Join(.{ RotateRightA(true), Fetch("ir") })})
         .Build(null);
 };
 
